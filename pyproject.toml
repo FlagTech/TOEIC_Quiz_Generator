@@ -1,0 +1,25 @@
+[project]
+name = "toeic-quiz-generator"
+version = "1.0.0"
+description = "TOEIC AI Quiz Generator - AI-powered TOEIC test generator supporting all 7 parts (Reading & Listening)"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "aiosqlite>=0.21.0",
+    "datasets>=2.0.0",
+    "fastapi>=0.119.1",
+    "google-generativeai>=0.8.5",
+    "google-genai>=1.58.0",
+    "jinja2>=3.1.6",
+    "ollama>=0.6.0",
+    "openai>=2.6.0",
+    "pydantic>=2.12.3",
+    "pydub>=0.25.1",
+    "python-dotenv>=1.1.1",
+    "python-multipart>=0.0.20",
+    "requests>=2.31.0",
+    "sqlalchemy>=2.0.44",
+    "uvicorn>=0.38.0",
+    "reportlab>=4.0.0",
+    "websockets>=15.0.1",
+]
