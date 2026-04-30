@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
 import type {
   ExplanationAudioOptionItem,
@@ -10,7 +10,6 @@ import type {
 
 const props = defineProps<{
   item: ExplanationItem
-  disableGenerate?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -81,6 +80,18 @@ function topLevelBadgeClass() {
 function userAnswerClass(isCorrect: boolean) {
   return isCorrect ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
 }
+
+// 收合/展開 AI 詳解
+const explanationOpen = ref(true)
+const childExplanationOpen = ref<Record<string, boolean>>({})
+
+function isChildOpen(id: string): boolean {
+  return childExplanationOpen.value[id] ?? true
+}
+
+function toggleChild(id: string) {
+  childExplanationOpen.value[id] = !isChildOpen(id)
+}
 </script>
 
 <template>
@@ -99,7 +110,7 @@ function userAnswerClass(isCorrect: boolean) {
         <button
           v-if="!hasAnyExplanation"
           @click="emitGenerate"
-          :disabled="item.isGenerating || disableGenerate"
+          :disabled="item.isGenerating"
           class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {{ item.isGenerating ? '⏳ 生成中...' : '✨ 生成詳解' }}
@@ -107,7 +118,7 @@ function userAnswerClass(isCorrect: boolean) {
         <button
           v-else
           @click="emitGenerate"
-          :disabled="item.isGenerating || disableGenerate"
+          :disabled="item.isGenerating"
           class="px-4 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg text-sm font-medium transition-all disabled:opacity-50"
         >
           {{ item.isGenerating ? '⏳ 生成中...' : '🔄 重新生成' }}
@@ -226,12 +237,21 @@ function userAnswerClass(isCorrect: boolean) {
           </div>
         </div>
 
-        <div v-if="child.explanation" class="rounded-lg border border-sky-100 dark:border-sky-900/60 bg-sky-50/55 dark:bg-sky-950/20 p-4">
-          <div class="flex items-start gap-2">
-            <div class="text-sm font-semibold text-blue-900 dark:text-blue-200 shrink-0">AI 詳解</div>
-            <div class="text-sm flex-1">
-              <MarkdownRenderer :content="child.explanation" :light-surface="true" />
-            </div>
+        <div v-if="child.explanation" class="rounded-lg border border-sky-100 dark:border-sky-900/60 bg-sky-50/55 dark:bg-sky-950/20 overflow-hidden">
+          <button
+            @click="toggleChild(child.id)"
+            class="w-full flex items-center justify-between px-4 py-2.5 text-sm font-semibold text-blue-900 dark:text-blue-200 hover:bg-sky-100/60 dark:hover:bg-sky-900/30 transition-colors"
+          >
+            <span>AI 詳解</span>
+            <svg
+              :class="['w-4 h-4 transition-transform duration-200', isChildOpen(child.id) ? 'rotate-180' : '']"
+              fill="none" stroke="currentColor" viewBox="0 0 24 24"
+            >
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+          <div v-if="isChildOpen(child.id)" class="px-4 pb-4 text-sm">
+            <MarkdownRenderer :content="child.explanation" :light-surface="true" />
           </div>
         </div>
       </div>
@@ -259,12 +279,21 @@ function userAnswerClass(isCorrect: boolean) {
       {{ item.staticHint }}
     </div>
 
-    <div v-else-if="item.explanation" class="rounded-lg border border-sky-100 dark:border-sky-900/60 bg-sky-50/55 dark:bg-sky-950/20 p-4">
-      <div class="flex items-start gap-3">
-        <div class="text-sm font-semibold text-blue-900 dark:text-blue-200 shrink-0">AI 詳解</div>
-        <div class="flex-1">
-          <MarkdownRenderer :content="item.explanation" :light-surface="true" />
-        </div>
+    <div v-else-if="item.explanation" class="rounded-lg border border-sky-100 dark:border-sky-900/60 bg-sky-50/55 dark:bg-sky-950/20 overflow-hidden">
+      <button
+        @click="explanationOpen = !explanationOpen"
+        class="w-full flex items-center justify-between px-4 py-2.5 text-sm font-semibold text-blue-900 dark:text-blue-200 hover:bg-sky-100/60 dark:hover:bg-sky-900/30 transition-colors"
+      >
+        <span>AI 詳解</span>
+        <svg
+          :class="['w-4 h-4 transition-transform duration-200', explanationOpen ? 'rotate-180' : '']"
+          fill="none" stroke="currentColor" viewBox="0 0 24 24"
+        >
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+      <div v-if="explanationOpen" class="px-4 pb-4">
+        <MarkdownRenderer :content="item.explanation" :light-surface="true" />
       </div>
     </div>
   </div>

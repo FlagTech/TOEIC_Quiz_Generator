@@ -1,7 +1,7 @@
 import type { QuizLogSummary } from '@/types'
 
 export type SidebarLogSource = 'quiz' | 'full_test'
-export type SidebarFolderId = 'all' | 'uncategorized' | string
+export type SidebarFolderId = 'all' | string
 
 export interface FullTestSidebarLogSnapshot {
   id: string

@@ -102,7 +102,7 @@ export const toeicAPI = {
   // 測驗記錄管理
   getQuizLogs: () =>
     api.get<QuizLogSummary[]>('/toeic/quiz-logs'),
-  createQuizLog: (data: { mode: string; title: string; count: number; difficulty: string; folder_id?: string | null }) =>
+  createQuizLog: (data: { id?: string; mode: string; title: string; count: number; difficulty: string; folder_id?: string | null }) =>
     api.post<QuizLogSummary>('/toeic/quiz-logs', data),
   getQuizLog: (logId: string) =>
     api.get<QuizLogDetail>(`/toeic/quiz-logs/${logId}`),
@@ -146,7 +146,18 @@ export const toeicAPI = {
   getReadingTestJobResult: (jobId: string) =>
     api.get<ReadingTestResponse>(`/toeic/reading-test/job/${jobId}/result`),
   cancelReadingTestJob: (jobId: string) =>
-    api.delete<{ message: string }>(`/toeic/reading-test/job/${jobId}`)
+    api.delete<{ message: string }>(`/toeic/reading-test/job/${jobId}`),
+
+  uploadAudio: (file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return api.post<{ url: string }>('/listening/upload-audio', form)
+  },
+  uploadImage: (file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return api.post<{ url: string }>('/listening/upload-image', form)
+  },
 }
 
 // ========== TOEIC 聽力測驗 API (Part 1-4) ==========

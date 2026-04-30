@@ -1,7 +1,9 @@
 """
 TOEIC 聽力測驗 API 路由
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile, File
+from pathlib import Path
+import shutil
 from pydantic import BaseModel
 from typing import List, Literal, Optional, Dict, Any
 from datetime import datetime
@@ -536,7 +538,7 @@ async def generate_tts_audio(
     if provider.lower() != "gemini":
         raise HTTPException(status_code=400, detail="TTS 僅支援 Gemini")
 
-    voice_to_use = pick_random_gemini_voice()
+    voice_to_use = voice if voice and voice != "alloy" else pick_random_gemini_voice()
 
     # 計算音訊檔案名稱（基於文字 + 聲音 + 口音 + 語速 hash）
     hash_input = f"{text}|{voice_to_use}|{accent}|{pace}"
@@ -912,13 +914,17 @@ async def generate_part3_question(
 
         if not os.path.exists(conv_path):
             # ===== Gemini: 使用 Multi-Speaker TTS =====
-            print(">>> 正在使用 Gemini Multi-Speaker TTS 生成對話音檔...")
+            print(
+                ">>> 正在使用 Gemini Multi-Speaker TTS 生成對話音檔"
+                f"（Man: {man_voice}, Woman: {woman_voice}）..."
+            )
 
             from backend.ai_clients.gemini_tts_client import GeminiTTSClient
 
             tts_client = GeminiTTSClient(
                 api_key=tts_api_key,
-                model="gemini-2.5-flash-preview-tts"
+                model="gemini-2.5-flash-preview-tts",
+                voice=man_voice
             )
 
             last_error: Optional[Exception] = None
@@ -1053,7 +1059,7 @@ async def generate_part4_question(
             text=talk_text,
             provider=tts_provider,
             api_key=tts_api_key,
-            voice="onyx",  # 使用較正式的聲音
+            voice=None,
             speed=0.95,
             accent=talk_accent,
             pace=pace
@@ -1800,3 +1806,25 @@ async def generate_listening_explanations(request: ListeningExplanationRequest):
     except Exception as e:
         print(f">>> 生成聽力測驗詳解失敗: {str(e)}")
         raise HTTPException(status_code=500, detail=f"生成詳解失敗：{str(e)}")
+
+
+@router.post("/upload-audio")
+async def upload_audio(file: UploadFile = File(...)):
+    if not file.filename or not file.filename.endswith(".wav"):
+        raise HTTPException(status_code=400, detail="Only .wav files accepted")
+    dest = Path("data/audio_cache") / file.filename
+    if not dest.exists():
+        with open(dest, "wb") as f:
+            shutil.copyfileobj(file.file, f)
+    return {"url": f"/audio/{file.filename}"}
+
+
+@router.post("/upload-image")
+async def upload_image(file: UploadFile = File(...)):
+    if not file.filename or not file.filename.lower().endswith((".png", ".jpg", ".jpeg")):
+        raise HTTPException(status_code=400, detail="Only image files accepted")
+    dest = Path("data/listening_images") / file.filename
+    if not dest.exists():
+        with open(dest, "wb") as f:
+            shutil.copyfileobj(file.file, f)
+    return {"url": f"/images/part1/{file.filename}"}

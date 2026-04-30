@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import type { QuizFolderResponse } from '@/types'
 import type { SidebarFolderId, UnifiedSidebarLog } from '@/utils/testHistory'
+import { useExportImport } from '@/composables/useExportImport'
 
 const props = defineProps<{
   open: boolean
@@ -34,16 +35,23 @@ const draggedLogKey = ref<string | null>(null)
 const sidebarTitle = computed(() => props.title || '測驗記錄')
 const sidebarEmptyText = computed(() => props.emptyText || '尚無測驗記錄')
 
+const { isExporting, isImporting, exportProgress, importProgress, exportAll, importAll } = useExportImport()
+const fileInputRef = ref<HTMLInputElement | null>(null)
+
+function onFileSelected(event: Event) {
+  const file = (event.target as HTMLInputElement).files?.[0]
+  if (file) importAll(file)
+}
+function openFilePicker() {
+  if (fileInputRef.value) { fileInputRef.value.value = ''; fileInputRef.value.click() }
+}
+
 function closeSidebar() {
   emit('update:open', false)
 }
 
 function getFolderLogCount(folderId: string) {
   return props.logs.filter(log => log.folderId === folderId).length
-}
-
-function getUncategorizedCount() {
-  return props.logs.filter(log => !log.folderId).length
 }
 
 function onDragStart(log: UnifiedSidebarLog) {
@@ -132,11 +140,24 @@ function onDropToFolder(folderId: string | null) {
           </h2>
           <div class="flex items-center gap-2">
             <button
-              @click="emit('request-create-folder')"
-              class="text-xs px-2 py-1 rounded-lg bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-all"
+              @click="exportAll"
+              :disabled="isExporting || isImporting"
+              class="inline-flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-lg bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-sm hover:from-emerald-600 hover:to-teal-600 hover:shadow-md active:scale-95 transition-all disabled:opacity-50"
+              :title="exportProgress || '匯出所有記錄（含音檔圖片）'"
             >
-              + 新增
+              <span>📤</span>
+              <span>{{ isExporting ? (exportProgress || '匯出中...') : '匯出題目' }}</span>
             </button>
+            <button
+              @click="openFilePicker"
+              :disabled="isExporting || isImporting"
+              class="inline-flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-lg bg-gradient-to-r from-violet-500 to-purple-500 text-white shadow-sm hover:from-violet-600 hover:to-purple-600 hover:shadow-md active:scale-95 transition-all disabled:opacity-50"
+              :title="importProgress || '從 ZIP 匯入記錄'"
+            >
+              <span>📥</span>
+              <span>{{ isImporting ? (importProgress || '匯入中...') : '匯入題目' }}</span>
+            </button>
+            <input ref="fileInputRef" type="file" accept=".zip" class="hidden" @change="onFileSelected" />
             <button
               @click="closeSidebar"
               class="p-2 hover:bg-gray-200/50 dark:hover:bg-white/10 rounded-xl transition-all"
@@ -146,14 +167,17 @@ function onDropToFolder(folderId: string | null) {
           </div>
         </div>
         <p class="text-xs text-gray-500 dark:text-gray-400">共 {{ logs.length }} 筆記錄</p>
-        <div class="mt-3">
-          <slot name="header-controls" />
-        </div>
       </div>
 
       <div class="p-3 border-b border-white/20 space-y-1">
         <div class="flex items-center justify-between mb-1">
           <span class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">資料夾</span>
+          <button
+            @click="emit('request-create-folder')"
+            class="text-xs px-2 py-1 rounded-lg bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-all"
+          >
+            + 新增資料夾
+          </button>
         </div>
 
         <button
@@ -164,16 +188,6 @@ function onDropToFolder(folderId: string | null) {
         >
           <span>📋 全部</span>
           <span class="px-2 py-0.5 rounded-full bg-gray-200 dark:bg-gray-700 text-xs">{{ logs.length }}</span>
-        </button>
-
-        <button
-          @click="emit('select-folder', 'uncategorized')"
-          @dragover="onDragOver"
-          @drop="onDropToFolder(null)"
-          :class="['w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-all', selectedFolderId === 'uncategorized' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-semibold' : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300']"
-        >
-          <span>📁 未分類</span>
-          <span class="px-2 py-0.5 rounded-full bg-gray-200 dark:bg-gray-700 text-xs">{{ getUncategorizedCount() }}</span>
         </button>
 
         <div

@@ -10,7 +10,7 @@ import { useToast } from '@/composables/useToast'
 import type { ListeningTestResponse, ReadingTestResponse, ListeningTestJobStatus, ReadingTestJobStatus, QuizFolderResponse, QuizLogSummary, TOEICQuestion } from '@/types'
 import type { ExplanationChildItem, ExplanationItem, ExplanationOptionItem, ExplanationPartKey } from '@/types/explanations'
 import type { FullTestSidebarLogSnapshot, SidebarFolderId, UnifiedSidebarLog } from '@/utils/testHistory'
-import { SIDEBAR_DATA_UPDATED_EVENT, buildSidebarLogKey, formatDifficultyLabel, isFullTestBackendLog, isQuizBackendLog, notifySidebarDataUpdated, writeRawFullTestLogs } from '@/utils/testHistory'
+import { SIDEBAR_DATA_UPDATED_EVENT, buildSidebarLogKey, formatDifficultyLabel, isFullTestBackendLog, isQuizBackendLog, notifySidebarDataUpdated } from '@/utils/testHistory'
 
 const settingsStore = useSettingsStore()
 const toast = useToast()
@@ -68,8 +68,7 @@ type TestLog = {
   created_at: string
   completed_at?: string
   jobId?: string          // 生成中/失敗時保存，用於接續輪詢
-  backendLogId?: string   // 後端 quiz_logs.id，用於持久化 testData
-  testData: FullTestResponse | null  // 僅存於記憶體，不寫 localStorage
+  testData: FullTestResponse | null  // 僅存於記憶體，由後端按需載入
   answers: Map<number, Answer>
   score?: {
     correct: number
@@ -83,18 +82,12 @@ type TestLog = {
 const sidebarOpen = ref(false)
 const testLogs = ref<TestLog[]>([])
 const quizSidebarLogs = ref<QuizLogSummary[]>([])
-const backendQuizLogs = ref<QuizLogSummary[]>([])
 const currentLogId = ref<string | null>(null)
 const movingSidebarLog = ref<UnifiedSidebarLog | null>(null)
 const deletingSidebarLog = ref<UnifiedSidebarLog | null>(null)
 
 const SIDEBAR_QUERY_SOURCE = 'openHistorySource'
 const SIDEBAR_QUERY_ID = 'openHistoryId'
-
-// LocalStorage 管理
-function testLogsStorageKey() {
-  return 'toeic_test_logs_v2'
-}
 
 const CURRENT_JOB_KEY = 'toeic_test_current_job_v2'
 const JOB_EVENT_NAME = 'full-test-job-updated'
@@ -103,69 +96,67 @@ function notifyJobUpdated() {
   window.dispatchEvent(new Event(JOB_EVENT_NAME))
 }
 
-function loadTestLogs() {
+async function loadFullTestLogs() {
   try {
-    const raw = localStorage.getItem(testLogsStorageKey())
-    if (!raw) { testLogs.value = []; return }
-
-    const logs = JSON.parse(raw)
-    const recovered: TestLog[] = []
-    for (const log of logs) {
-      try {
-        recovered.push({
-          ...log,
-          testData: null,  // 不存於 localStorage，需由後端取回
-          answers: new Map(Object.entries(log.answers || {})),
-          explanations: new Map(Object.entries(log.explanations || {}).map(([k, v]) => [Number(k), v]))
-        })
-      } catch {
-        // 單筆損壞就跳過，不影響其他筆
-      }
-    }
-    testLogs.value = recovered
+    const logs = await toeicAPI.getQuizLogs()
+    testLogs.value = logs.filter(isFullTestBackendLog).map(backendLog => ({
+      id: backendLog.id,
+      title: backendLog.title,
+      testType: (backendLog.mode === 'reading_full' ? 'reading' : 'listening') as TestType,
+      difficulty: (backendLog.difficulty === 'easy' || backendLog.difficulty === 'hard'
+        ? backendLog.difficulty : 'medium') as 'easy' | 'medium' | 'hard',
+      created_at: backendLog.created_at,
+      testData: null,
+      answers: new Map(),
+      score: backendLog.score,
+      folder_id: backendLog.folder_id ?? null,
+    }))
   } catch {
     testLogs.value = []
   }
 }
 
-function saveTestLogs() {
-  try {
-    const logsToSave = testLogs.value.map(log => ({
-      ...log,
-      testData: null,  // testData 不存 localStorage（太大），由 backendLogId 取回
-      answers: Object.fromEntries(log.answers),
-      explanations: log.explanations ? Object.fromEntries(log.explanations) : {}
-    }))
-    writeRawFullTestLogs(logsToSave)
-  } catch (e) {
-    console.warn('測驗記錄 metadata 儲存失敗', e)
-    toast.error('測驗記錄儲存失敗，可能是瀏覽器空間不足')
-  }
-}
-
-function addTestLog(title: string, jobId?: string) {
+async function addTestLog(title: string, jobId?: string) {
   if (!testType.value) return
 
-  const log: TestLog = {
-    id: `${Date.now()}`,
-    title,
-    testType: testType.value,
-    jobId,
-    difficulty: config.value.difficulty,
-    created_at: new Date().toISOString(),
-    testData: null,
-    answers: new Map()
+  try {
+    const backendLog = await toeicAPI.createQuizLog({
+      mode: testType.value === 'listening' ? 'listening_full' : 'reading_full',
+      title,
+      count: 100,
+      difficulty: config.value.difficulty,
+    })
+
+    const log: TestLog = {
+      id: backendLog.id,
+      title,
+      testType: testType.value,
+      jobId,
+      difficulty: config.value.difficulty,
+      created_at: backendLog.created_at,
+      testData: null,
+      answers: new Map(),
+      folder_id: null,
+    }
+
+    currentLogId.value = log.id
+    testLogs.value.unshift(log)
+    if (testLogs.value.length > 50) testLogs.value.length = 50
+  } catch (e) {
+    console.warn('建立測驗記錄失敗，使用暫時 ID', e)
+    const log: TestLog = {
+      id: `${Date.now()}`,
+      title,
+      testType: testType.value,
+      jobId,
+      difficulty: config.value.difficulty,
+      created_at: new Date().toISOString(),
+      testData: null,
+      answers: new Map(),
+    }
+    currentLogId.value = log.id
+    testLogs.value.unshift(log)
   }
-
-  currentLogId.value = log.id
-  testLogs.value.unshift(log)
-
-  // 僅保留最近 50 筆
-  if (testLogs.value.length > 50) {
-    testLogs.value.length = 50
-  }
-
-  saveTestLogs()
 }
 
 function updateCurrentTestLog() {
@@ -183,14 +174,9 @@ function updateCurrentTestLog() {
     total: score.value.total
   }
 
-  saveTestLogs()
-
-  // 同步分數到後端
-  if (log.backendLogId) {
-    toeicAPI.updateQuizLog(log.backendLogId, {
-      score: { correct: log.score.correct, total: log.score.total }
-    }).catch(e => console.warn('同步分數到後端失敗', e))
-  }
+  toeicAPI.updateQuizLog(log.id, {
+    score: { correct: log.score.correct, total: log.score.total }
+  }).catch(e => console.warn('同步分數到後端失敗', e))
 }
 
 async function loadTestLog(log: TestLog) {
@@ -213,10 +199,10 @@ async function loadTestLog(log: TestLog) {
     return
   }
 
-  // testData 不在記憶體中，但有 backendLogId：從後端取回
-  if (!log.testData && log.backendLogId) {
+  // testData 不在記憶體中：從後端取回
+  if (!log.testData) {
     try {
-      const backendLog = await toeicAPI.getQuizLog(log.backendLogId)
+      const backendLog = await toeicAPI.getQuizLog(log.id)
       if (backendLog.payload) {
         log.testData = backendLog.payload as FullTestResponse
       }
@@ -261,19 +247,16 @@ function deleteTestLog(logId: string) {
   if (index !== -1) {
     const log = testLogs.value[index]
     if (!log) return
-    if (log.backendLogId) {
-      toeicAPI.deleteQuizLog(log.backendLogId).catch(e => console.warn('刪除後端記錄失敗', e))
-    }
+    toeicAPI.deleteQuizLog(log.id).catch(e => console.warn('刪除後端記錄失敗', e))
     testLogs.value.splice(index, 1)
     if (currentLogId.value === logId) currentLogId.value = null
-    saveTestLogs()
   }
 }
 
 // ========== 資料夾系統 ==========
 
 const quizFolders = ref<QuizFolderResponse[]>([])
-const selectedFolderId = ref<string | 'all' | 'uncategorized'>('all')
+const selectedFolderId = ref<SidebarFolderId>('all')
 const showFolderDialog = ref(false)
 const folderName = ref('')
 const folderColor = ref('#3B82F6')
@@ -288,46 +271,9 @@ async function loadFolders() {
 async function loadQuizSidebarLogs() {
   try {
     const logs = await toeicAPI.getQuizLogs()
-    backendQuizLogs.value = logs
     quizSidebarLogs.value = logs.filter(isQuizBackendLog)
-    syncBackendFullTestLogs()
   } catch {
-    backendQuizLogs.value = []
     quizSidebarLogs.value = []
-  }
-}
-
-function syncBackendFullTestLogs() {
-  for (const backendLog of backendQuizLogs.value.filter(isFullTestBackendLog)) {
-    const exactMatch = testLogs.value.find(log => log.backendLogId === backendLog.id || log.id === backendLog.id)
-    if (exactMatch) continue
-
-    const looseMatch = testLogs.value.find(log =>
-      !log.backendLogId &&
-      log.title === backendLog.title &&
-      log.testType === (backendLog.mode === 'reading_full' ? 'reading' : 'listening') &&
-      log.difficulty === (backendLog.difficulty === 'easy' || backendLog.difficulty === 'hard' ? backendLog.difficulty : 'medium')
-    )
-
-    if (looseMatch) {
-      looseMatch.backendLogId = backendLog.id
-      looseMatch.score = looseMatch.score ?? backendLog.score
-      looseMatch.folder_id = looseMatch.folder_id ?? backendLog.folder_id ?? null
-      continue
-    }
-
-    testLogs.value.push({
-      id: backendLog.id,
-      title: backendLog.title,
-      testType: backendLog.mode === 'reading_full' ? 'reading' : 'listening',
-      difficulty: backendLog.difficulty === 'easy' || backendLog.difficulty === 'hard' ? backendLog.difficulty : 'medium',
-      created_at: backendLog.created_at,
-      backendLogId: backendLog.id,
-      testData: null,
-      answers: new Map(),
-      score: backendLog.score,
-      folder_id: backendLog.folder_id ?? null,
-    })
   }
 }
 
@@ -347,9 +293,8 @@ const unifiedFullTestLogs = computed<UnifiedSidebarLog[]>(() => {
     statusLabel: log.score ? '已完成' : (!log.testData && log.jobId ? '生成中' : '進行中'),
     scoreText: log.score ? `${log.score.correct} / ${log.score.total}` : undefined,
     secondaryText: log.timeElapsed ? `用時 ${formatDuration(log.timeElapsed)}` : (!log.testData && log.jobId ? '點擊切回生成畫面' : '點擊繼續作答'),
-    canExportPdf: log.testType === 'reading' && !!(log.testData || log.backendLogId),
+    canExportPdf: log.testType === 'reading',
     testType: log.testType,
-    backendLogId: log.backendLogId,
   }))
 })
 
@@ -381,7 +326,6 @@ const sidebarLogs = computed(() => {
 
 const visibleSidebarLogs = computed(() => {
   if (selectedFolderId.value === 'all') return sidebarLogs.value
-  if (selectedFolderId.value === 'uncategorized') return sidebarLogs.value.filter(log => !log.folderId)
   return sidebarLogs.value.filter(log => log.folderId === selectedFolderId.value)
 })
 
@@ -415,12 +359,11 @@ async function submitFolder() {
 }
 
 async function deleteFolder(folderId: string, name: string) {
-  if (!confirm(`確定要刪除「${name}」資料夾嗎？資料夾內的記錄會移到未分類。`)) return
+  if (!confirm(`確定要刪除「${name}」資料夾嗎？資料夾內的記錄會移出資料夾，仍可在「全部」中查看。`)) return
   try {
     await toeicAPI.deleteQuizFolder(folderId)
     quizFolders.value = quizFolders.value.filter(f => f.id !== folderId)
     testLogs.value.forEach(l => { if (l.folder_id === folderId) l.folder_id = undefined })
-    saveTestLogs()
     if (selectedFolderId.value === folderId) selectedFolderId.value = 'all'
     notifySidebarDataUpdated()
   } catch { toast.error('刪除失敗') }
@@ -439,10 +382,7 @@ async function moveToFolder(folderId: string | null) {
     const log = testLogs.value.find(l => l.id === item.id)
     if (!log) return
     log.folder_id = folderId ?? undefined
-    saveTestLogs()
-    if (log.backendLogId) {
-      toeicAPI.updateQuizLog(log.backendLogId, { folder_id: folderId }).catch(e => console.warn(e))
-    }
+    toeicAPI.updateQuizLog(log.id, { folder_id: folderId }).catch(e => console.warn(e))
   } else {
     try {
       await toeicAPI.updateQuizLog(item.id, { folder_id: folderId })
@@ -465,10 +405,7 @@ async function onSidebarMoveLogToFolder(payload: { log: UnifiedSidebarLog; folde
     const log = testLogs.value.find(l => l.id === payload.log.id)
     if (!log) return
     log.folder_id = payload.folderId ?? undefined
-    saveTestLogs()
-    if (log.backendLogId) {
-      toeicAPI.updateQuizLog(log.backendLogId, { folder_id: payload.folderId }).catch(e => console.warn(e))
-    }
+    toeicAPI.updateQuizLog(log.id, { folder_id: payload.folderId }).catch(e => console.warn(e))
   } else {
     try {
       await toeicAPI.updateQuizLog(payload.log.id, { folder_id: payload.folderId })
@@ -494,7 +431,6 @@ function onSidebarReorderLogs(payload: { draggedLog: UnifiedSidebarLog; targetLo
     const [moved] = testLogs.value.splice(fromIdx, 1)
     if (!moved) return
     testLogs.value.splice(toIdx, 0, moved)
-    saveTestLogs()
     return
   }
 
@@ -533,13 +469,14 @@ async function executeDeleteTestLog() {
 }
 
 function handleSidebarDataUpdated() {
-  loadTestLogs()
+  loadFullTestLogs()
   loadFolders()
   loadQuizSidebarLogs()
 }
 
 function formatTime(ts: string) {
-  const d = new Date(ts)
+  const normalized = ts.endsWith('Z') || ts.includes('+') ? ts : ts + 'Z'
+  const d = new Date(normalized)
   const y = d.getFullYear()
   const m = String(d.getMonth() + 1).padStart(2, '0')
   const day = String(d.getDate()).padStart(2, '0')
@@ -1002,18 +939,19 @@ async function generateTest() {
 
     testJobId.value = job.job_id
 
-    // 建立側邊欄記錄（生成開始時就建立，testData 之後填入）
+    // 建立後端側邊欄記錄（生成開始時就建立，testData 之後填入）
     const testTypeName2 = testType.value === 'listening' ? '聽力' : '閱讀'
     const diffName2 = config.value.difficulty === 'easy' ? '簡單' : config.value.difficulty === 'medium' ? '中等' : '困難'
-    addTestLog(`${testTypeName2}測驗 - ${diffName2}`, job.job_id)
+    await addTestLog(`${testTypeName2}測驗 - ${diffName2}`, job.job_id)
 
-    // 記住當前任務
+    // 記住當前任務（含 logId，供頁面重整後恢復連結）
     localStorage.setItem(
       CURRENT_JOB_KEY,
       JSON.stringify({
         jobId: job.job_id,
         testType: testType.value,
         config: config.value,
+        logId: currentLogId.value,
         startedAt: new Date().toISOString()
       })
     )
@@ -1116,23 +1054,12 @@ async function checkTestJobStatus() {
           completedLog.testData = result
           completedLog.jobId = undefined
 
-          // 將 testData 持久化到後端 SQLite（避免 localStorage 空間不足）
+          // 將 testData 持久化到後端（記錄在生成開始時已建立）
           try {
-            const testTypeName3 = testType.value === 'listening' ? '聽力' : '閱讀'
-            const diffName3 = config.value.difficulty === 'easy' ? '簡單' : config.value.difficulty === 'medium' ? '中等' : '困難'
-            const backendLog = await toeicAPI.createQuizLog({
-              mode: testType.value === 'listening' ? 'listening_full' : 'reading_full',
-              title: completedLog.title || `${testTypeName3}測驗 - ${diffName3}`,
-              count: 100,
-              difficulty: config.value.difficulty,
-            })
-            await toeicAPI.updateQuizLog(backendLog.id, { payload: result as Record<string, any> })
-            completedLog.backendLogId = backendLog.id
+            await toeicAPI.updateQuizLog(completedLog.id, { payload: result as Record<string, any> })
           } catch (e) {
             console.warn('儲存測驗資料到後端失敗，資料僅存於記憶體', e)
           }
-
-          saveTestLogs()
         }
 
         // 標記所有 Part 為完成
@@ -1284,6 +1211,7 @@ async function resumeFullTest() {
         jobId: testJobId.value,
         testType: testType.value,
         config: config.value,
+        logId: currentLogId.value,
         startedAt: new Date().toISOString()
       })
     )
@@ -1294,7 +1222,6 @@ async function resumeFullTest() {
     }
 
     startStatusPolling()
-    const testTypeName = testType.value === 'listening' ? '聽力' : '閱讀'
   } catch (error: any) {
     console.error('接續測驗任務失敗:', error)
     toast.error(error?.message || '接續測驗任務失敗，請稍後重試')
@@ -1803,6 +1730,17 @@ function stopTimer() {
   }
 }
 
+function restart() {
+  stopStatusPolling()
+  stopTimer()
+  generating.value = false
+  isPaused.value = false
+  testData.value = null
+  answers.value = new Map()
+  currentLogId.value = null
+  stage.value = 'config'
+}
+
 function formatTimeSeconds(seconds: number): string {
   const hours = Math.floor(seconds / 3600)
   const mins = Math.floor((seconds % 3600) / 60)
@@ -1832,7 +1770,7 @@ function retakeTest() {
     log.answers = new Map()
     log.explanations = new Map(explanations.value)
     log.timeElapsed = 0
-    saveTestLogs()
+    toeicAPI.updateQuizLog(log.id, { score: null }).catch(e => console.warn('清除成績失敗', e))
   }
 
   stage.value = 'quiz'
@@ -1854,9 +1792,9 @@ async function exportPDFForLog(log: TestLog) {
 
   let data: FullTestResponse | null = log.testData
 
-  if (!data && log.backendLogId) {
+  if (!data) {
     try {
-      const backendLog = await toeicAPI.getQuizLog(log.backendLogId)
+      const backendLog = await toeicAPI.getQuizLog(log.id)
       if (backendLog.payload) {
         data = backendLog.payload as FullTestResponse
         log.testData = data
@@ -1948,9 +1886,9 @@ async function _doExportPDF(mode: 'questions_only' | 'answer_key' | 'both', data
 
 
 // 生命週期
-onMounted(() => {
-  // 載入測驗記錄與資料夾
-  loadTestLogs()
+onMounted(async () => {
+  // 先載入後端記錄（確保 testLogs 已填入，再進行任務恢復）
+  await loadFullTestLogs()
   loadFolders()
   loadQuizSidebarLogs()
   window.addEventListener(SIDEBAR_DATA_UPDATED_EVENT, handleSidebarDataUpdated)
@@ -1960,12 +1898,19 @@ onMounted(() => {
   const raw = localStorage.getItem(CURRENT_JOB_KEY)
   if (raw) {
     try {
-      const saved = JSON.parse(raw) as { jobId: string; testType: TestType; config: any }
+      const saved = JSON.parse(raw) as { jobId: string; testType: TestType; config: any; logId?: string }
       if (saved.jobId && saved.testType) {
         testJobId.value = saved.jobId
         testType.value = saved.testType
         stage.value = 'generating'
         generating.value = true
+
+        // 恢復 currentLogId，並補上 in-memory log 的 jobId
+        if (saved.logId) {
+          currentLogId.value = saved.logId
+          const existingLog = testLogs.value.find(l => l.id === saved.logId)
+          if (existingLog) existingLog.jobId = saved.jobId
+        }
 
         // 先全部設為 pending，實際狀態由下一次輪詢更新
         Object.keys(generatingProgress.value).forEach(key => {
@@ -1992,6 +1937,10 @@ watch(
     consumePendingSidebarSelection()
   }
 )
+
+watch(() => route.query.reset, (val) => {
+  if (val && stage.value !== 'config') restart()
+})
 </script>
 
 <template>
@@ -2807,7 +2756,7 @@ watch(
         <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-sm p-6 flex flex-col gap-3">
           <h3 class="text-lg font-bold text-gray-900 dark:text-white">移動到資料夾</h3>
           <button @click="moveToFolder(null)" class="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition text-left">
-            <span>📁</span><span class="text-gray-700 dark:text-gray-300">未分類</span>
+            <span>📁</span><span class="text-gray-700 dark:text-gray-300">不放入資料夾</span>
           </button>
           <button
             v-for="folder in quizFolders"

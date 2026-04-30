@@ -1,6 +1,9 @@
 /* Tailwind v4 entry + sources */
 @import "tailwindcss";
 
+/* 強制淺色：dark: 只在有 .dark class 時生效（我們永遠不加該 class） */
+@variant dark (&:where(.dark, .dark *));
+
 /* Tell Tailwind where to scan for classes (v4) */
 @source "../../index.html";
 @source "../**/*.{vue,js,ts,jsx,tsx}";

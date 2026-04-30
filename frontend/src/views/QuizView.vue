@@ -69,7 +69,7 @@ const isListeningMode = computed(() => {
 const generating = ref(false)
 const submitting = ref(false)
 const loadingExplanations = ref(false)
-const generatingAllExplanations = ref(false)
+
 const generatingExplanation = ref<Record<number | string, boolean>>({})
 const explanationFilter = ref<'all' | 'incorrect' | 'correct'>('all')
 
@@ -79,6 +79,10 @@ const quizJobKind = ref<'listening' | 'reading' | null>(null)
 const quizJobMode = ref<'part1' | 'part2' | 'part3' | 'part4' | 'part5' | 'part6' | 'part7_single' | 'part7_multiple' | null>(null)
 const quizJobHandled = ref(false)
 let quizStatusTimer: number | null = null
+
+const quizJobProgress = ref<{ generated: number; total: number } | null>(null)
+const quizJobHasError = ref(false)
+const quizJobErrorMsg = ref('')
 
 // 音訊播放狀態
 const audioPlaying = ref(false)
@@ -128,6 +132,35 @@ function clearQuizJob() {
   quizJobKind.value = null
   quizJobMode.value = null
   quizJobHandled.value = false
+  quizJobProgress.value = null
+  quizJobHasError.value = false
+  quizJobErrorMsg.value = ''
+}
+
+function leaveQuizGenerating() {
+  stopQuizStatusPolling()
+  generating.value = false
+  quizJobHasError.value = false
+  quizJobErrorMsg.value = ''
+  stage.value = 'config'
+  // 保留 localStorage job，下次開啟會自動接續
+}
+
+async function retryQuizGeneration() {
+  const mode = quizJobMode.value
+  clearQuizJob()
+  quizJobHasError.value = false
+  quizJobErrorMsg.value = ''
+  if (!mode) { stage.value = 'config'; return }
+  testMode.value = mode
+  if (mode === 'part1') await generatePart1Quiz()
+  else if (mode === 'part2') await generatePart2Quiz()
+  else if (mode === 'part3') await generatePart3Quiz()
+  else if (mode === 'part4') await generatePart4Quiz()
+  else if (mode === 'part5') await generateReadingQuiz('sentence')
+  else if (mode === 'part6') await generateReadingQuiz('paragraph')
+  else if (mode === 'part7_single') await generateReadingQuiz('single_passage')
+  else if (mode === 'part7_multiple') await generateReadingQuiz('multiple_passage')
 }
 
 function stopQuizStatusPolling() {
@@ -179,6 +212,10 @@ async function checkQuizJobStatus() {
         ? await listeningAPI.getListeningJobStatus(quizJobId.value)
         : await toeicAPI.getReadingJobStatus(quizJobId.value)
 
+    if (status.progress) {
+      quizJobProgress.value = status.progress as { generated: number; total: number }
+    }
+
     if (status.status === 'completed') {
       quizJobHandled.value = true
       const result =
@@ -213,18 +250,16 @@ async function checkQuizJobStatus() {
       quizJobHandled.value = true
       stopQuizStatusPolling()
       generating.value = false
-      stage.value = 'config'
-      toast.error(status.message || '生成失敗，請稍後再試')
-      clearQuizJob()
+      quizJobHasError.value = true
+      quizJobErrorMsg.value = status.message || '生成失敗，請重試'
     }
   } catch (error: any) {
     const statusCode = error?.response?.status
     if (statusCode === 404) {
       stopQuizStatusPolling()
       generating.value = false
-      stage.value = 'config'
-      toast.error('生成任務已不存在，請重新生成')
-      clearQuizJob()
+      quizJobHasError.value = true
+      quizJobErrorMsg.value = '生成任務已不存在，請重試'
       return
     }
     console.error('查詢題型測驗任務狀態失敗:', error)
@@ -293,9 +328,6 @@ const movingSidebarLog = ref<UnifiedSidebarLog | null>(null)
 const SIDEBAR_QUERY_SOURCE = 'openHistorySource'
 const SIDEBAR_QUERY_ID = 'openHistoryId'
 
-// 分類過濾
-const filterMode = ref<'all' | 'part1' | 'part2' | 'part3' | 'part4' | 'part5' | 'part6' | 'part7_single' | 'part7_multiple'>('all')
-
 // 當前測驗記錄 ID（生成題目時建立，提交答案時更新）
 const currentLogId = ref<string | null>(null)
 
@@ -306,7 +338,7 @@ async function addQuizLog(title: string) {
       title,
       count: config.value.count,
       difficulty: config.value.difficulty,
-      folder_id: selectedFolderId.value === 'uncategorized' ? null : selectedFolderId.value
+      folder_id: selectedFolderId.value === 'all' ? null : selectedFolderId.value
     })
     currentLogId.value = log.id
     quizLogs.value.unshift(log as any)
@@ -366,7 +398,8 @@ async function updateCurrentQuizLog() {
 }
 
 function formatTime(ts: string) {
-  const d = new Date(ts)
+  const normalized = ts.endsWith('Z') || ts.includes('+') ? ts : ts + 'Z'
+  const d = new Date(normalized)
   const y = d.getFullYear()
   const m = String(d.getMonth() + 1).padStart(2, '0')
   const day = String(d.getDate()).padStart(2, '0')
@@ -485,7 +518,7 @@ async function submitFolder() {
 }
 
 async function deleteFolder(folderId: string, folderName: string) {
-  if (!confirm(`確定要刪除「${folderName}」資料夾嗎？資料夾內的測驗記錄會移到未分類。`)) {
+  if (!confirm(`確定要刪除「${folderName}」資料夾嗎？資料夾內的測驗記錄會移出資料夾，仍可在「全部」中查看。`)) {
     return
   }
 
@@ -763,14 +796,8 @@ const sidebarLogs = computed(() => {
 const visibleSidebarLogs = computed(() => {
   let logs = sidebarLogs.value
 
-  if (selectedFolderId.value === 'uncategorized') {
-    logs = logs.filter(log => !log.folderId)
-  } else if (selectedFolderId.value !== 'all') {
+  if (selectedFolderId.value !== 'all') {
     logs = logs.filter(log => log.folderId === selectedFolderId.value)
-  }
-
-  if (filterMode.value !== 'all') {
-    logs = logs.filter(log => log.source === 'quiz' && log.mode === filterMode.value)
   }
 
   return logs
@@ -839,7 +866,7 @@ async function handleSidebarExportPdf(item: UnifiedSidebarLog) {
     const url = window.URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `TOEIC_Export_${new Date().toISOString().slice(0, 10)}.zip`
+    a.download = `toeic_pdf_${new Date().toISOString().slice(0, 10)}.zip`
     a.click()
     window.URL.revokeObjectURL(url)
   } catch (e) {
@@ -2043,115 +2070,6 @@ async function submitListeningAnswers() {
   }
 }
 
-// 批次生成全部詳解
-async function generateAllExplanations() {
-  // Part 1 不支援生成詳解
-  if (testMode.value === 'part1') {
-    return
-  }
-
-  // 確認對話框
-  const totalQuestions = isReadingMode.value
-    ? questions.value.length
-    : testMode.value === 'part3' || testMode.value === 'part4'
-      ? (testMode.value === 'part3' ? part3Questions.value.length : part4Questions.value.length) * 3
-      : part2Questions.value.length
-
-  if (!confirm(`確定要生成全部 ${totalQuestions} 題的詳解嗎？\n\n注意：這可能需要較長時間，並消耗 API 配額。`)) {
-    return
-  }
-
-  generatingAllExplanations.value = true
-  loadingExplanations.value = true
-
-  try {
-
-    const provider = 'gemini'  // 固定使用 Gemini
-    const model = settingsStore.settings.defaultModel || 'gemini-2.5-flash'
-    const apiKey = settingsStore.settings.apiKeys.gemini
-
-    if (isReadingMode.value) {
-      // 閱讀測驗（Part 5-7）
-        const answersData = questions.value.map(q => ({
-          question_number: q.question_number,
-          user_answer: userAnswers.value[q.question_number] || '',
-          correct_answer: q.correct_answer,
-          question_type: q.question_type,
-          question_text: q.question_text,
-          passage_style: q.passage_style,
-          passage: q.passage,
-          passages: q.passages,
-          options: q.options
-        }))
-
-      const exps = await toeicAPI.generateExplanations({
-        answers: answersData,
-        provider: provider,
-        model: model,
-        api_key: apiKey
-      })
-
-      explanations.value = exps
-    } else {
-      // 聽力測驗（Part 2-4，跳過 Part 1）
-      const answersData: any[] = []
-
-      if (testMode.value === 'part2') {
-        for (const q of part2Questions.value) {
-          answersData.push({
-            question_number: q.question_number,
-            user_answer: userAnswers.value[q.question_number] || '',
-            correct_answer: q.correct_answer,
-            question_text: (q as any).question_text,
-            option_texts: (q as any).option_texts
-          })
-        }
-      } else if (testMode.value === 'part3') {
-        for (const q of part3Questions.value) {
-          answersData.push({
-            question_number: q.question_number,
-            questions: q.questions,
-            correct_answers: q.correct_answers,
-            user_answers: part3Answers.value[q.question_number] || [],
-            transcript: (q as any).transcript
-          })
-        }
-      } else if (testMode.value === 'part4') {
-        for (const q of part4Questions.value) {
-          answersData.push({
-            question_number: q.question_number,
-            questions: q.questions,
-            correct_answers: q.correct_answers,
-            user_answers: part4Answers.value[q.question_number] || [],
-            transcript: (q as any).transcript
-          })
-        }
-      }
-
-      const exps = await listeningAPI.generateListeningExplanations({
-        test_mode: testMode.value,
-        answers: answersData,
-        provider: provider,
-        model: model,
-        api_key: apiKey
-      })
-
-      explanations.value = exps
-    }
-
-
-    // 更新測驗記錄
-    await updateCurrentQuizLog()
-  } catch (error: any) {
-    console.error('批次生成詳解失敗:', error)
-    const errorMsg = error?.response?.data?.detail || '批次生成詳解失敗'
-    toast.error(errorMsg)
-  } finally {
-    generatingAllExplanations.value = false
-    loadingExplanations.value = false
-  }
-}
-
 // 生成單題詳解
 async function generateSingleExplanation(questionNumber: number, subIndex?: number) {
   const key = subIndex !== undefined ? `${questionNumber}-${subIndex}` : questionNumber
@@ -2310,7 +2228,6 @@ async function retakeQuiz() {
   currentQuestionIndex.value = 0
   currentGroupIndex.value = 0
   loadingExplanations.value = false
-  generatingAllExplanations.value = false
   generatingExplanation.value = {}
   explanationFilter.value = 'all'
 
@@ -2377,7 +2294,6 @@ function restart() {
 
   // 重置載入狀態
   loadingExplanations.value = false
-  generatingAllExplanations.value = false
   generatingExplanation.value = {}
 
   // 停止播放音訊
@@ -2410,7 +2326,7 @@ function getTypeName(type: string): string {
         :folders="quizFolders"
         :selected-folder-id="selectedFolderId"
         :active-log-key="activeSidebarLogKey"
-        :empty-text="filterMode === 'all' ? '此資料夾無測驗記錄' : '此分類無測驗記錄'"
+        empty-text="此資料夾無測驗記錄"
         @select-folder="selectedFolderId = $event"
         @select-log="handleSidebarSelectLog"
         @request-create-folder="openAddFolderDialog"
@@ -2421,27 +2337,7 @@ function getTypeName(type: string): string {
         @export-pdf="handleSidebarExportPdf"
         @move-log-to-folder="onSidebarMoveLogToFolder"
         @reorder-logs="onSidebarReorderLogs"
-      >
-        <template #header-controls>
-          <div class="space-y-2">
-            <label class="text-xs font-semibold text-gray-500 dark:text-gray-400">過濾題型</label>
-            <select
-              v-model="filterMode"
-              class="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            >
-              <option value="all">全部題型</option>
-              <option value="part1">Part 1 - 照片描述</option>
-              <option value="part2">Part 2 - 應答問題</option>
-              <option value="part3">Part 3 - 簡短對話</option>
-              <option value="part4">Part 4 - 簡短獨白</option>
-              <option value="part5">Part 5 - 句子填空</option>
-              <option value="part6">Part 6 - 段落填空</option>
-              <option value="part7_single">Part 7 - 單篇閱讀</option>
-              <option value="part7_multiple">Part 7 - 多篇閱讀</option>
-            </select>
-          </div>
-        </template>
-      </UnifiedTestSidebar>
+      />
 
       <!-- 資料夾對話框 -->
       <div
@@ -2515,7 +2411,7 @@ function getTypeName(type: string): string {
               class="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left"
             >
               <span class="text-lg"></span>
-              <span class="font-semibold text-gray-700 dark:text-gray-200">未分類</span>
+              <span class="font-semibold text-gray-700 dark:text-gray-200">不放入資料夾</span>
             </button>
 
             <button
@@ -2745,14 +2641,102 @@ function getTypeName(type: string): string {
 
       <!-- ========== 生成階段 ========== -->
       <div v-if="stage === 'generating'" class="max-w-3xl mx-auto px-4 py-8">
-        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-8 text-center">
-          <h2 class="text-2xl font-bold text-gray-900 dark:text-white mb-4">正在生成題目...</h2>
-          <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">
-            生成會在背景進行，您可以切換到其他頁面。
-          </p>
-          <div class="text-xs text-gray-400 dark:text-gray-500">
-            返回此頁面時會自動接續進度。
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-8">
+          <h2 class="text-2xl font-bold text-gray-900 dark:text-white mb-6">
+            {{ quizJobHasError ? '⚠️ 生成中斷' : '正在生成題目...' }}
+          </h2>
+
+          <!-- Part 進度卡 -->
+          <div
+            :class="[
+              'p-5 rounded-xl border-2 transition-all',
+              quizJobHasError
+                ? 'bg-red-50 border-red-200'
+                : 'bg-blue-50 border-blue-200'
+            ]"
+          >
+            <div class="flex items-center gap-4">
+              <!-- 狀態圖示 -->
+              <div class="flex-shrink-0 w-10 h-10 flex items-center justify-center">
+                <span v-if="quizJobHasError" class="text-red-500 text-3xl">❌</span>
+                <svg v-else class="animate-spin h-8 w-8 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+              </div>
+
+              <!-- 題型與進度 -->
+              <div class="flex-1">
+                <div class="flex items-center justify-between mb-2">
+                  <span class="font-semibold text-gray-900">
+                    {{
+                      quizJobMode === 'part1' ? 'Part 1 照片描述' :
+                      quizJobMode === 'part2' ? 'Part 2 應答問題' :
+                      quizJobMode === 'part3' ? 'Part 3 簡短對話' :
+                      quizJobMode === 'part4' ? 'Part 4 簡短獨白' :
+                      quizJobMode === 'part5' ? 'Part 5 句子填空' :
+                      quizJobMode === 'part6' ? 'Part 6 段落填空' :
+                      quizJobMode === 'part7_single' ? 'Part 7 單篇閱讀' :
+                      quizJobMode === 'part7_multiple' ? 'Part 7 多篇閱讀' : '題目生成'
+                    }}
+                  </span>
+                  <span :class="quizJobHasError ? 'text-red-600' : 'text-blue-600'" class="text-sm font-medium">
+                    <template v-if="quizJobHasError">失敗</template>
+                    <template v-else-if="quizJobProgress">
+                      {{ quizJobProgress.generated }} / {{ quizJobProgress.total }} 題
+                    </template>
+                    <template v-else>生成中...</template>
+                  </span>
+                </div>
+
+                <!-- 進度條 -->
+                <div class="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+                  <div
+                    v-if="quizJobHasError"
+                    class="h-2 rounded-full bg-red-500"
+                    style="width: 100%"
+                  ></div>
+                  <div
+                    v-else-if="quizJobProgress && quizJobProgress.total > 0 && quizJobProgress.generated > 0"
+                    class="h-2 rounded-full bg-blue-500 transition-all duration-500"
+                    :style="{ width: Math.round((quizJobProgress.generated / quizJobProgress.total) * 100) + '%' }"
+                  ></div>
+                  <!-- 不確定進度時：全寬流動動畫 -->
+                  <div
+                    v-else
+                    class="h-2 rounded-full bg-blue-500"
+                    style="width: 40%; animation: slide-indeterminate 1.5s ease-in-out infinite"
+                  ></div>
+                </div>
+              </div>
+            </div>
           </div>
+
+          <!-- 錯誤訊息 -->
+          <div v-if="quizJobHasError && quizJobErrorMsg" class="mt-4 text-sm text-red-600 bg-red-50 rounded-lg px-4 py-3">
+            {{ quizJobErrorMsg }}
+          </div>
+
+          <!-- 操作按鈕 -->
+          <div class="mt-6 flex items-center justify-center gap-3 flex-wrap">
+            <button
+              v-if="quizJobHasError"
+              @click="retryQuizGeneration"
+              class="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-sm font-medium transition-colors"
+            >
+              🔄 重試生成
+            </button>
+            <button
+              @click="leaveQuizGenerating"
+              class="px-5 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg text-sm font-medium transition-colors"
+            >
+              ← 返回設定
+            </button>
+          </div>
+
+          <p v-if="!quizJobHasError" class="mt-4 text-xs text-gray-400 text-center">
+            生成於背景進行，離開後返回此頁面會自動恢復進度。
+          </p>
         </div>
       </div>
 
@@ -3206,14 +3190,6 @@ function getTypeName(type: string): string {
             </div>
             <div class="flex gap-3 flex-wrap">
               <button
-                v-if="testMode !== 'part1'"
-                @click="generateAllExplanations"
-                :disabled="generatingAllExplanations"
-                class="px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white rounded-lg text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {{ generatingAllExplanations ? '⏳ 生成中...' : '✨ 全部生成' }}
-              </button>
-              <button
                 @click="stage = 'result'"
                 class="px-4 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg font-medium transition-all"
               >
@@ -3243,7 +3219,6 @@ function getTypeName(type: string): string {
               v-for="item in quizExplanationItems"
               :key="item.id"
               :item="item"
-              :disable-generate="generatingAllExplanations"
               @generate="generateSingleExplanation"
             />
           </div>
@@ -3260,5 +3235,9 @@ function getTypeName(type: string): string {
 </template>
 
 <style scoped>
-/* 可以在這裡添加自定義樣式 */
+@keyframes slide-indeterminate {
+  0%   { transform: translateX(-100%); }
+  60%  { transform: translateX(250%); }
+  100% { transform: translateX(250%); }
+}
 </style>

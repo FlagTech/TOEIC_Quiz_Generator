@@ -19,6 +19,7 @@
     "axios": "^1.12.2",
     "chart.js": "^4.5.1",
     "highlight.js": "^11.11.1",
+    "jszip": "^3.10.1",
     "marked": "^17.0.1",
     "pinia": "^3.0.3",
     "pinia-plugin-persistedstate": "^4.5.0",

@@ -149,6 +149,7 @@ class QuizFolderResponse(BaseModel):
 # ========== 測驗記錄 Schemas ==========
 
 class QuizLogCreateRequest(BaseModel):
+    id: Optional[str] = None
     mode: str
     title: str
     count: int

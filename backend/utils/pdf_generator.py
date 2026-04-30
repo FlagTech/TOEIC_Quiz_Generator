@@ -450,7 +450,7 @@ class TOEICPDFGenerator:
 
         part_offsets = {
             "part1": 1, "part2": 7, "part3": 32, "part4": 71,
-            "part5": 101, "part6": 131, "part7": 147,
+            "part5": 1, "part6": 31, "part7": 47,
         }
 
         # ── LISTENING TEST ──
@@ -859,37 +859,44 @@ class TOEICPDFGenerator:
         story.append(Paragraph(f"Date: {datetime.now().strftime('%Y-%m-%d')}", self.normal_style))
         story.append(Spacer(1, 20))
 
+        offsets = {
+            "part1": 1, "part2": 7, "part3": 32, "part4": 71,
+            "part5": 1, "part6": 31, "part7": 47,
+        }
         answers = []
 
-        for q in test_data.get('part1_questions', []):
-            answers.append((q.get('question_number', 0), q.get('correct_answer', ''), 'Part 1'))
+        for i, q in enumerate(test_data.get('part1_questions', [])):
+            answers.append((offsets["part1"] + i, q.get('correct_answer', ''), 'Part 1'))
 
-        for q in test_data.get('part2_questions', []):
-            answers.append((q.get('question_number', 0), q.get('correct_answer', ''), 'Part 2'))
+        for i, q in enumerate(test_data.get('part2_questions', [])):
+            answers.append((offsets["part2"] + i, q.get('correct_answer', ''), 'Part 2'))
 
-        q_num = 1
+        q_num = offsets["part3"]
         for conv in test_data.get('part3_questions', []):
             for ans in conv.get('correct_answers', []):
                 answers.append((q_num, ans, 'Part 3'))
                 q_num += 1
 
-        q_num = 1
+        q_num = offsets["part4"]
         for talk in test_data.get('part4_questions', []):
             for ans in talk.get('correct_answers', []):
                 answers.append((q_num, ans, 'Part 4'))
                 q_num += 1
 
-        for q in test_data.get('part5_questions', []):
-            answers.append((q.get('question_number', 0), q.get('correct_answer', ''), 'Part 5'))
+        for i, q in enumerate(test_data.get('part5_questions', [])):
+            answers.append((offsets["part5"] + i, q.get('correct_answer', ''), 'Part 5'))
 
-        for q in test_data.get('part6_questions', []):
-            answers.append((q.get('question_number', 0), q.get('correct_answer', ''), 'Part 6'))
+        for i, q in enumerate(test_data.get('part6_questions', [])):
+            answers.append((offsets["part6"] + i, q.get('correct_answer', ''), 'Part 6'))
 
+        q_num = offsets["part7"]
         for q in test_data.get('part7_single_questions', []):
-            answers.append((q.get('question_number', 0), q.get('correct_answer', ''), 'Part 7'))
+            answers.append((q_num, q.get('correct_answer', ''), 'Part 7'))
+            q_num += 1
 
         for q in test_data.get('part7_multiple_questions', []):
-            answers.append((q.get('question_number', 0), q.get('correct_answer', ''), 'Part 7'))
+            answers.append((q_num, q.get('correct_answer', ''), 'Part 7'))
+            q_num += 1
 
         listening_parts = {'Part 1', 'Part 2', 'Part 3', 'Part 4'}
         listening_answers = [a for a in answers if a[2] in listening_parts]

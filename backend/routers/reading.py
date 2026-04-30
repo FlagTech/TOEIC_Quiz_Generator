@@ -24,7 +24,7 @@ from backend.schemas import (
     QuizLogDetail,
     PDFExportRequest,
 )
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Callable
 from fastapi.responses import FileResponse
 from datetime import datetime
 import json
@@ -88,6 +88,45 @@ def _init_reading_test_progress() -> Dict[str, Any]:
         "part7_single_index": 0,
         "part7_multiple_index": 0,
     }
+
+
+def _mark_stale_generation_job(
+    job: Dict[str, Any],
+    default_progress: Dict[str, Any],
+    persist: Callable[[], None],
+) -> None:
+    """
+    將從資料庫恢復的 pending/running 任務標記為可接續。
+
+    背景 thread 只存在於記憶體。後端重啟後若 SQLite 裡仍是 pending/running，
+    代表原本的 worker 已不存在，必須讓前端顯示「接續生成」。
+    """
+    if job.get("status") not in {"pending", "running"}:
+        return
+
+    progress = job.get("progress") or default_progress
+    job["progress"] = progress
+
+    marked = False
+    for key, value in list(progress.items()):
+        if key.endswith("_index"):
+            continue
+        if value == "running":
+            progress[key] = "error"
+            marked = True
+
+    if not marked:
+        for key, value in list(progress.items()):
+            if key.endswith("_index"):
+                continue
+            if value != "completed":
+                progress[key] = "error"
+                break
+
+    job["status"] = "error"
+    job["message"] = "生成任務已中斷，請按「接續生成」繼續。"
+    job["completed_at"] = datetime.utcnow()
+    persist()
 
 
 def _ensure_listening_test_result(result: Any, difficulty: Optional[str]) -> Dict[str, Any]:
@@ -840,7 +879,7 @@ def delete_quiz_folder(folder_id: str, db: Session = Depends(get_db)) -> dict:
 @router.post("/quiz-logs", response_model=QuizLogSummary)
 def create_quiz_log(request: QuizLogCreateRequest, db: Session = Depends(get_db)) -> QuizLogSummary:
     log = QuizLog(
-        id=str(uuid.uuid4()),
+        id=request.id or str(uuid.uuid4()),
         mode=request.mode,
         title=request.title,
         count=request.count,
@@ -988,6 +1027,7 @@ async def _run_listening_test_job(job_id: str, request: ListeningTestGenerateReq
             generate_part3_question,
             generate_part4_question,
         )
+        import random as _random
 
         job = listening_test_jobs[job_id]
         progress = job.get("progress") or _init_listening_test_progress()
@@ -1072,7 +1112,6 @@ async def _run_listening_test_job(job_id: str, request: ListeningTestGenerateReq
             complete_part(part_key)
         else:
             from backend.prompt_engine.listening_prompts import PART2_TOPICS as _P2
-            import random as _random
             _p2_pool = _P2.copy(); _random.shuffle(_p2_pool)
             p2_topics = [_p2_pool[i % len(_p2_pool)] for i in range(expected)]
             start_part(part_key)
@@ -1496,12 +1535,21 @@ async def get_listening_test_job_status(job_id: str) -> ListeningTestJobStatus:
     """
     查詢聽力測驗背景任務狀態。
     """
+    loaded_from_db = False
     job = listening_test_jobs.get(job_id)
     if not job:
         job = _load_listening_test_job(job_id)
         if not job:
             raise HTTPException(status_code=404, detail="找不到該任務")
         listening_test_jobs[job_id] = job
+        loaded_from_db = True
+
+    if loaded_from_db:
+        _mark_stale_generation_job(
+            job,
+            _init_listening_test_progress(),
+            lambda: _persist_listening_test_job(job_id),
+        )
 
     return ListeningTestJobStatus(
         job_id=job_id,
@@ -1518,14 +1566,16 @@ async def resume_listening_test_job(job_id: str, request: ListeningTestGenerateR
     """
     接續聽力測驗背景任務。
     """
+    loaded_from_db = False
     job = listening_test_jobs.get(job_id)
     if not job:
         job = _load_listening_test_job(job_id)
         if not job:
             raise HTTPException(status_code=404, detail="找不到該任務")
         listening_test_jobs[job_id] = job
+        loaded_from_db = True
 
-    if job.get("status") == "running":
+    if job.get("status") == "running" and not loaded_from_db:
         return ListeningTestJobStatus(
             job_id=job_id,
             status=job["status"],
@@ -1642,12 +1692,21 @@ async def get_reading_test_job_status(job_id: str) -> ReadingTestJobStatus:
     """
     查詢閱讀測驗背景任務狀態。
     """
+    loaded_from_db = False
     job = reading_test_jobs.get(job_id)
     if not job:
         job = _load_reading_test_job(job_id)
         if not job:
             raise HTTPException(status_code=404, detail="找不到該任務")
         reading_test_jobs[job_id] = job
+        loaded_from_db = True
+
+    if loaded_from_db:
+        _mark_stale_generation_job(
+            job,
+            _init_reading_test_progress(),
+            lambda: _persist_reading_test_job(job_id),
+        )
 
     return ReadingTestJobStatus(
         job_id=job_id,
@@ -1664,14 +1723,16 @@ async def resume_reading_test_job(job_id: str, request: ReadingTestGenerateReque
     """
     接續閱讀測驗背景任務。
     """
+    loaded_from_db = False
     job = reading_test_jobs.get(job_id)
     if not job:
         job = _load_reading_test_job(job_id)
         if not job:
             raise HTTPException(status_code=404, detail="找不到該任務")
         reading_test_jobs[job_id] = job
+        loaded_from_db = True
 
-    if job.get("status") == "running":
+    if job.get("status") == "running" and not loaded_from_db:
         return ReadingTestJobStatus(
             job_id=job_id,
             status=job["status"],

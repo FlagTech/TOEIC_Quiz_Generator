@@ -5,10 +5,13 @@ TOEIC 測驗生成 - FastAPI 主程式
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+import logging
 import os
 
 from backend.database import init_db
 from backend.routers import reading, listening
+
+logging.getLogger("uvicorn.access").disabled = True
 
 # 建立 FastAPI 應用程式
 app = FastAPI(
@@ -81,5 +84,6 @@ if __name__ == "__main__":
         "backend.main:app",
         host="0.0.0.0",
         port=8001,  # 使用 8001 避免與原專案衝突
-        reload=True
+        reload=True,
+        access_log=False
     )

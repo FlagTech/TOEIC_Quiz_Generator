@@ -1,8 +1,17 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount } from 'vue'
-import { useRouter, RouterLink } from 'vue-router'
+import { useRouter, useRoute, RouterLink } from 'vue-router'
 
 const router = useRouter()
+const route = useRoute()
+
+function navigateTo(path: string) {
+  if (route.path === path) {
+    router.push({ path, query: { reset: Date.now().toString() } })
+  } else {
+    router.push(path)
+  }
+}
 
 // 完整測驗背景任務提醒
 const hasOngoingFullTest = ref(false)
@@ -48,22 +57,22 @@ onBeforeUnmount(() => {
           </RouterLink>
 
           <!-- 題型測驗 -->
-          <RouterLink
-            to="/"
+          <button
+            @click="navigateTo('/')"
             class="px-3 py-2 rounded-xl font-semibold text-gray-700 dark:text-gray-200 hover:bg-white/60 dark:hover:bg-white/10 transition inline-flex items-center gap-2"
           >
             <span class="text-xl">🧩</span>
             <span class="hidden md:inline">題型測驗</span>
-          </RouterLink>
+          </button>
 
           <!-- TOEIC 模擬測驗 -->
-          <RouterLink
-            to="/full-test"
+          <button
+            @click="navigateTo('/full-test')"
             class="px-3 py-2 rounded-xl font-semibold text-gray-700 dark:text-gray-200 hover:bg-white/60 dark:hover:bg-white/10 transition inline-flex items-center gap-2"
           >
             <span class="text-xl">📄</span>
             <span class="hidden md:inline">模擬測驗</span>
-          </RouterLink>
+          </button>
 
           <!-- Spacer -->
           <div class="flex-1"></div>
