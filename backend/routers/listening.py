@@ -36,6 +36,21 @@ router = APIRouter(prefix="/api/listening", tags=["listening"])
 listening_prompts = ListeningPrompts()
 listening_jobs: Dict[str, Dict[str, Any]] = {}
 
+
+def _shuffle_options(options: list, correct_answer: str) -> tuple:
+    """打亂選項文字，保持 label (A/B/C/D) 位置不變，回傳 (new_options, new_correct_answer)。"""
+    if not options or not correct_answer:
+        return options, correct_answer
+    correct_text = next((o["text"] for o in options if o.get("label") == correct_answer), None)
+    if correct_text is None:
+        return options, correct_answer
+    labels = [o["label"] for o in options]
+    texts = [o["text"] for o in options]
+    random.shuffle(texts)
+    new_options = [{"label": labels[i], "text": texts[i]} for i in range(len(texts))]
+    new_correct = next((o["label"] for o in new_options if o["text"] == correct_text), correct_answer)
+    return new_options, new_correct
+
 # TOEIC 考題四種口音（美式、英式、加拿大、澳洲）
 TOEIC_ACCENTS = [
     "American English accent",
@@ -653,9 +668,15 @@ async def generate_part2_question(
         raise HTTPException(status_code=500, detail=f"AI 生成題目失敗: {type(e).__name__}: {str(e)}")
 
     # 2. 從 AI 生成的結果中提取選項和正確答案
-    # AI 已經按照 schema 生成了隨機排列的選項和正確答案標籤
     options = [opt["text"] for opt in qa_data["options"]]
     correct_answer = qa_data["correct_answer"]
+
+    # 打亂選項順序（必須在音檔產生前，音檔內容依 labeled_options 順序錄製）
+    label_map = ["A", "B", "C"]
+    if correct_answer in label_map and len(options) == 3:
+        correct_text = options[label_map.index(correct_answer)]
+        random.shuffle(options)
+        correct_answer = label_map[options.index(correct_text)]
 
     # 3. 生成音檔（改為單人 TTS，避免 Multi-Speaker Bug）
     if tts_provider.lower() != "gemini":
@@ -963,11 +984,12 @@ async def generate_part3_question(
     correct_answers = []
 
     for q in conv_data["questions"]:
+        opts, ans = _shuffle_options(q["options"], q["correct_answer"])
         questions.append(Part3QuestionSet(
             question_text=q["question_text"],
-            options=q["options"]
+            options=opts
         ))
-        correct_answers.append(q["correct_answer"])
+        correct_answers.append(ans)
 
     # 5. 生成逐字稿
     transcript_lines = []
@@ -1073,11 +1095,12 @@ async def generate_part4_question(
     correct_answers = []
 
     for q in talk_data["questions"]:
+        opts, ans = _shuffle_options(q["options"], q["correct_answer"])
         questions.append(Part4QuestionSet(
             question_text=q["question_text"],
-            options=q["options"]
+            options=opts
         ))
-        correct_answers.append(q["correct_answer"])
+        correct_answers.append(ans)
 
     return Part4Question(
         question_number=question_number,

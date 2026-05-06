@@ -34,11 +34,27 @@ import threading
 import uuid
 import os
 import hashlib
+import random
 from backend.database import SessionLocal, get_db
 from backend.models import QuizJob, QuizFolder, QuizLog
 from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/api/toeic", tags=["toeic"])
+
+
+def _shuffle_options(options: list, correct_answer: str) -> tuple:
+    """打亂選項文字，保持 label (A/B/C/D) 位置不變，回傳 (new_options, new_correct_answer)。"""
+    if not options or not correct_answer:
+        return options, correct_answer
+    correct_text = next((o["text"] for o in options if o.get("label") == correct_answer), None)
+    if correct_text is None:
+        return options, correct_answer
+    labels = [o["label"] for o in options]
+    texts = [o["text"] for o in options]
+    random.shuffle(texts)
+    new_options = [{"label": labels[i], "text": texts[i]} for i in range(len(texts))]
+    new_correct = next((o["label"] for o in new_options if o["text"] == correct_text), correct_answer)
+    return new_options, new_correct
 
 # 記憶體內任務儲存（服務重啟後會清空）
 toeic_quiz_jobs: Dict[str, Dict[str, Any]] = {}
@@ -695,10 +711,12 @@ async def generate_reading_questions(request: TOEICGenerateRequest):
         if len(all_questions) == 0:
             raise ValueError("AI 未生成任何題目")
 
-        # 重新編號題目
+        # 重新編號題目，同時打亂選項順序以消除 LLM positional bias
         questions = []
         for index, q in enumerate(all_questions):
             q["question_number"] = index + 1
+            if "options" in q and "correct_answer" in q:
+                q["options"], q["correct_answer"] = _shuffle_options(q["options"], q["correct_answer"])
             questions.append(q)
 
         print(f">>> 成功生成 {len(questions)} 題")
