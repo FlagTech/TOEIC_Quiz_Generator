@@ -207,7 +207,7 @@ class AIClientFactory:
         Args:
             provider: 提供商名稱 ("openai", "gemini")
             api_key: API 金鑰
-            model: 模型名稱（Gemini: "flash" 或 "pro"; OpenAI: "tts-1" 或 "tts-1-hd"）
+            model: 模型名稱（Gemini: "flash" 或 "lite"; OpenAI: "tts-1" 或 "tts-1-hd"）
             voice: 聲音名稱
 
         Returns:

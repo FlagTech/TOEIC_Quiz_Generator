@@ -9,24 +9,23 @@ const toast = useToast()
 // Gemini 模型選擇（固定使用 Gemini）
 const modelGroups = [
   {
-    label: 'Gemini 3 系列（Preview）',
+    label: 'Gemini 3 系列（穩定）',
     models: [
-      { id: 'gemini-3.1-pro-preview', name: 'Gemini 3.1 Pro Preview' },
-      { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash Preview' },
-      { id: 'gemini-3.1-flash-lite-preview', name: 'Gemini 3.1 Flash-Lite Preview' },
+      { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash' },
+      { id: 'gemini-3.7-flash', name: 'Gemini 3.7 Flash' },
+      { id: 'gemini-3.5-flash-lite', name: 'Gemini 3.5 Flash-Lite（推薦）' },
+      { id: 'gemini-3.1-flash-lite', name: 'Gemini 3.1 Flash-Lite' },
     ]
   },
   {
-    label: 'Gemini 2.5 系列（穩定）',
+    label: 'Gemini 3 系列（Preview，需付費）',
     models: [
-      { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro' },
-      { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash（推薦）' },
-      { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash-Lite' },
+      { id: 'gemini-3.1-pro-preview', name: 'Gemini 3.1 Pro Preview' },
     ]
   },
 ]
 
-const model = ref<string>(settingsStore.settings.defaultModel || 'gemini-2.5-flash')
+const model = ref<string>(settingsStore.settings.defaultModel || 'gemini-3.5-flash-lite')
 const geminiKey = ref(settingsStore.settings.apiKeys.gemini || '')
 const showKey = ref(false)
 
@@ -98,7 +97,7 @@ function save() {
           </optgroup>
         </select>
         <p class="text-xs !text-gray-500 dark:!text-gray-400 mt-2">
-          建議使用 <strong>gemini-2.5-flash</strong>（速度快、成本低）或 <strong>gemini-3-flash-preview</strong>（最新一代）
+          建議使用 <strong>gemini-3.5-flash-lite</strong>（速度快、成本低）；需要更高品質可改用 <strong>gemini-3.8-flash</strong>
         </p>
       </div>
 

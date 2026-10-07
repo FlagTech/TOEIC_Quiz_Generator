@@ -17,9 +17,26 @@ type SafeSettings = Omit<AppSettings, 'apiKeys'>
 const defaultSafeSettings: SafeSettings = {
   theme: 'light',
   defaultProvider: 'gemini',
-  defaultModel: 'gemini-2.5-flash',
+  defaultModel: 'gemini-3.5-flash-lite',
   speechRate: 1.0,
   autoPlayAudio: false
+}
+
+// 已停用或新帳號無法使用的模型，讀取舊設定時自動改用預設模型
+const RETIRED_MODELS = [
+  'gemini-2.5-pro',
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-lite',
+  'gemini-3-flash-preview',
+  'gemini-3-pro-preview',
+  'gemini-3.1-flash-lite-preview',
+  'gemini-2.0-flash',
+  'gemini-2.0-flash-lite'
+]
+
+function pickModel(model: string | undefined): string | undefined {
+  if (!model || RETIRED_MODELS.includes(model)) return defaultSafeSettings.defaultModel
+  return model
 }
 
 function pickSafeSettings(value: Partial<AppSettings> | Partial<SafeSettings> | null): SafeSettings {
@@ -27,7 +44,7 @@ function pickSafeSettings(value: Partial<AppSettings> | Partial<SafeSettings> | 
     ...defaultSafeSettings,
     theme: value?.theme ?? defaultSafeSettings.theme,
     defaultProvider: 'gemini',
-    defaultModel: value?.defaultModel ?? defaultSafeSettings.defaultModel,
+    defaultModel: pickModel(value?.defaultModel),
     speechRate: value?.speechRate ?? defaultSafeSettings.speechRate,
     autoPlayAudio: value?.autoPlayAudio ?? defaultSafeSettings.autoPlayAudio
   }

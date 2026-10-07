@@ -19,18 +19,16 @@ logger = get_logger(__name__)
 class GeminiVocabularyClient(AIClientBase):
     """Google Gemini 單字處理客戶端"""
 
-    # Google Gemini 最新模型列表 (2025)
+    # Google Gemini 最新模型列表 (2026)
     AVAILABLE_MODELS = {
-        "gemini-3-pro-preview": "Gemini 3 Pro Preview - 旗艦多模態/推理",
-        "gemini-3-flash-preview": "Gemini 3 Flash Preview - 高速推理",
-        "gemini-2.5-pro": "Gemini 2.5 Pro - 高品質/強推理",
-        "gemini-2.5-flash": "Gemini 2.5 Flash - 平衡速度與品質",
-        "gemini-2.5-flash-lite": "Gemini 2.5 Flash-Lite - 高性價比",
-        "gemini-2.0-flash": "Gemini 2.0 Flash - 平衡多模態",
-        "gemini-2.0-flash-lite": "Gemini 2.0 Flash-Lite - 輕量快速",
+        "gemini-3.1-pro-preview": "Gemini 3.1 Pro Preview - 旗艦多模態/推理（無免費額度）",
+        "gemini-3.8-flash": "Gemini 3.8 Flash - 最新一代，平衡速度與品質",
+        "gemini-3.7-flash": "Gemini 3.7 Flash - 上一代 Flash",
+        "gemini-3.5-flash-lite": "Gemini 3.5 Flash-Lite - 高性價比",
+        "gemini-3.1-flash-lite": "Gemini 3.1 Flash-Lite - 輕量快速",
     }
 
-    def __init__(self, api_key: Optional[str] = None, model: str = "gemini-2.5-flash-lite"):
+    def __init__(self, api_key: Optional[str] = None, model: str = "gemini-3.5-flash-lite"):
         """
         初始化 Google Gemini 客戶端
 

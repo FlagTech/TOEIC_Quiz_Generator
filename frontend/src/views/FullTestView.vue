@@ -883,7 +883,7 @@ async function generateTest() {
 
   // 同步設定頁面的最新配置（固定使用 Gemini）
   config.value.provider = 'gemini'
-  config.value.model = settingsStore.settings.defaultModel || 'gemini-2.5-flash'
+  config.value.model = settingsStore.settings.defaultModel || 'gemini-3.5-flash-lite'
   config.value.apiKey = settingsStore.settings.apiKeys.gemini || ''
   config.value.mediaProvider = 'gemini'
   config.value.mediaApiKey = settingsStore.settings.apiKeys.gemini || ''
@@ -1159,7 +1159,7 @@ async function resumeFullTest() {
 
   // 同步設定頁面的最新配置（固定使用 Gemini）
   config.value.provider = 'gemini'
-  config.value.model = settingsStore.settings.defaultModel || 'gemini-2.5-flash'
+  config.value.model = settingsStore.settings.defaultModel || 'gemini-3.5-flash-lite'
   config.value.apiKey = settingsStore.settings.apiKeys.gemini || ''
   config.value.mediaProvider = 'gemini'
   config.value.mediaApiKey = settingsStore.settings.apiKeys.gemini || ''
@@ -1437,7 +1437,7 @@ async function generateSingleExplanation(questionNumber: number) {
   generatingExplanation.value.set(questionNumber, true)
   try {
     const provider = 'gemini'  // 固定使用 Gemini
-    const model = settingsStore.settings.defaultModel || 'gemini-2.5-flash'
+    const model = settingsStore.settings.defaultModel || 'gemini-3.5-flash-lite'
     const apiKey = settingsStore.settings.apiKeys.gemini
 
     // 呼叫 API 生成單題詳解

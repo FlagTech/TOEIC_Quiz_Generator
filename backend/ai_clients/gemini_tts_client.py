@@ -91,12 +91,45 @@ def pcm_to_wav(pcm_data: bytes, channels: int = 1, sample_rate: int = 24000, sam
     return wav_buffer.getvalue()
 
 
+def ensure_wav(audio_data: bytes) -> bytes:
+    """
+    確保音訊為 WAV 格式
+
+    Gemini 3.8 TTS 預設回傳含 RIFF header 的 WAV；
+    舊版 TTS 模型回傳原始 PCM，需要自行加上 WAV header。
+    """
+    if audio_data[:4] == b"RIFF":
+        return audio_data
+    return pcm_to_wav(audio_data, channels=1, sample_rate=24000, sample_width=2)
+
+
+def build_style(
+    style_prompt: Optional[str] = None,
+    accent: Optional[str] = None,
+    pace: Optional[str] = None,
+) -> Optional[str]:
+    """
+    組合 speech_metadata.style 字串
+
+    Gemini 3.8 TTS 會把輸入文字逐字念出，口音、語速等指示
+    不能再寫在文字裡（舊版 Director's Notes），必須放在 speech_metadata.style。
+    """
+    if accent or pace:
+        notes = []
+        if accent:
+            notes.append(f"{accent}.")
+        if pace:
+            notes.append(f"Read at a {pace} pace.")
+        return " ".join(notes)
+    return style_prompt
+
+
 class GeminiTTSClient:
     """Google Gemini Text-to-Speech 客戶端"""
 
     # 模型名稱
-    MODEL_FLASH = "gemini-2.5-flash-preview-tts"  # 低延遲版本
-    MODEL_PRO = "gemini-2.5-pro-preview-tts"      # 高品質版本
+    MODEL_FLASH = "gemini-3.8-flash-tts"      # 高品質版本（預設）
+    MODEL_LITE = "gemini-3.8-flash-lite-tts"  # 低成本版本
 
     def __init__(
         self,
@@ -109,7 +142,7 @@ class GeminiTTSClient:
 
         Args:
             api_key: Google API 金鑰（若為 None 則從環境變數讀取）
-            model: 使用的模型類型（flash: 低延遲, pro: 高品質）或完整模型名稱
+            model: 使用的模型類型（flash: 高品質, lite: 低成本）或完整模型名稱
             voice: 聲音名稱（預設 Puck）
         """
         # 使用 APIKeyManager 取得 API key
@@ -118,8 +151,8 @@ class GeminiTTSClient:
         # 選擇模型（允許傳入完整模型名稱）
         if model == "flash":
             self.model = self.MODEL_FLASH
-        elif model == "pro":
-            self.model = self.MODEL_PRO
+        elif model == "lite":
+            self.model = self.MODEL_LITE
         else:
             self.model = model
         self.voice = voice
@@ -160,26 +193,17 @@ class GeminiTTSClient:
         # 使用指定的聲音或預設聲音
         selected_voice = voice or self.voice
 
-        # 準備內容
-        if accent or pace:
-            # 使用 TOEIC Director's Notes 格式（優先於 style_prompt）
-            director_notes = []
-            if accent:
-                director_notes.append(f"Accent: {accent}.")
-            if pace:
-                director_notes.append(f"Pacing: Read at a {pace} pace.")
-
-            notes_section = "\n".join(director_notes)
-            content = f"""### DIRECTOR'S NOTES
-{notes_section}
-
-#### TRANSCRIPT
-{text}"""
-        elif style_prompt:
-            # 使用風格提示詞（舊版相容）
-            content = f"{style_prompt}: {text}"
-        else:
-            content = text
+        # 準備內容：文字逐字朗讀，口音與語速放在 speech_metadata.style
+        style = build_style(style_prompt, accent, pace)
+        content = types.Content(
+            role="user",
+            parts=[
+                types.Part(
+                    text=text,
+                    speech_metadata=types.SpeechMetadata(style=style) if style else None,
+                )
+            ],
+        )
 
         try:
             # 呼叫 API
@@ -189,11 +213,7 @@ class GeminiTTSClient:
                 config=types.GenerateContentConfig(
                     response_modalities=["AUDIO"],
                     speech_config=types.SpeechConfig(
-                        voice_config=types.VoiceConfig(
-                            prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                                voice_name=selected_voice,
-                            )
-                        )
+                        voice_config=types.VoiceConfig(voice=selected_voice)
                     ),
                 )
             )
@@ -207,14 +227,8 @@ class GeminiTTSClient:
             if not hasattr(audio_part, 'inline_data'):
                 raise Exception("API 回應中沒有 inline_data")
 
-            # 音訊資料已是 bytes 格式（PCM 格式）
-            pcm_data = audio_part.inline_data.data
-
-            # 將 PCM 轉換為 WAV 格式（添加 WAV header）
-            # Gemini TTS 輸出格式：24kHz, 單聲道, 16-bit PCM
-            wav_data = pcm_to_wav(pcm_data, channels=1, sample_rate=24000, sample_width=2)
-
-            return wav_data
+            # Gemini 3.8 TTS 輸出 WAV（24kHz, 單聲道, 16-bit）
+            return ensure_wav(audio_part.inline_data.data)
 
         except Exception as e:
             raise Exception(f"語音生成失敗: {str(e)}")
@@ -291,35 +305,18 @@ class GeminiTTSClient:
         if len(speakers) > 2:
             raise ValueError(f"Gemini TTS 最多支援 2 位說話者，當前有 {len(speakers)} 位")
 
-        # 格式化對話文字為 Gemini 期望的格式
-        # 格式: "Speaker1: text\nSpeaker2: text"
-        conversation_lines = []
-        for line in conversation:
-            speaker = line['speaker']
-            text = line['text']
-            conversation_lines.append(f"{speaker}: {text}")
-
-        conversation_text = "\n".join(conversation_lines)
-
-        # 添加風格提示和 TTS 指令
-        if accent or pace:
-            # 使用 TOEIC Director's Notes 格式（優先於 style_prompt）
-            director_notes = []
-            if accent:
-                director_notes.append(f"Accent: {accent}.")
-            if pace:
-                director_notes.append(f"Pacing: Read at a {pace} pace.")
-
-            notes_section = "\n".join(director_notes)
-            prompt = f"""### DIRECTOR'S NOTES
-{notes_section}
-
-#### TRANSCRIPT
-{conversation_text}"""
-        elif style_prompt:
-            prompt = f"{style_prompt}\n\nTTS the following conversation:\n{conversation_text}"
-        else:
-            prompt = f"TTS the following conversation:\n{conversation_text}"
+        # 每一句對話各自標上說話者與風格（speech_metadata）
+        style = build_style(style_prompt, accent, pace)
+        prompt = types.Content(
+            role="user",
+            parts=[
+                types.Part(
+                    text=line['text'],
+                    speech_metadata=types.SpeechMetadata(speaker=line['speaker'], style=style),
+                )
+                for line in conversation
+            ],
+        )
 
         try:
             # 構建 speaker_voice_configs
@@ -359,13 +356,7 @@ class GeminiTTSClient:
             if not hasattr(audio_part, 'inline_data'):
                 raise Exception("API 回應中沒有 inline_data")
 
-            # 音訊資料已是 bytes 格式（PCM 格式）
-            pcm_data = audio_part.inline_data.data
-
-            # 將 PCM 轉換為 WAV 格式（添加 WAV header）
-            wav_data = pcm_to_wav(pcm_data, channels=1, sample_rate=24000, sample_width=2)
-
-            return wav_data
+            return ensure_wav(audio_part.inline_data.data)
 
         except Exception as e:
             raise Exception(f"多人對話語音生成失敗: {str(e)}")

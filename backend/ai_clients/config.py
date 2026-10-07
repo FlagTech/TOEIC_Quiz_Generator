@@ -92,7 +92,7 @@ class ClientConfig:
     OPENAI_DEFAULT_MAX_TOKENS = 1500
 
     # Gemini 配置
-    GEMINI_DEFAULT_MODEL = "gemini-2.5-flash-lite"
+    GEMINI_DEFAULT_MODEL = "gemini-3.5-flash-lite"
     GEMINI_DEFAULT_TEMPERATURE = 1.0
     GEMINI_DEFAULT_MAX_TOKENS = 8000
 
@@ -102,17 +102,17 @@ class ClientConfig:
     OLLAMA_DEFAULT_MAX_TOKENS = 2500
 
     # TTS 配置
-    GEMINI_TTS_DEFAULT_MODEL = "gemini-2.5-flash-preview-tts"
+    GEMINI_TTS_DEFAULT_MODEL = "gemini-3.8-flash-tts"
     GEMINI_TTS_DEFAULT_VOICE = "Puck"
     OPENAI_TTS_DEFAULT_MODEL = "tts-1"
     OPENAI_TTS_DEFAULT_VOICE = "alloy"
 
     # Imagen 配置
-    GEMINI_IMAGEN_MODEL = "gemini-2.5-flash-image"
+    GEMINI_IMAGEN_MODEL = "gemini-3.1-flash-lite-image"
     GEMINI_IMAGEN_DEFAULT_ASPECT_RATIO = "1:1"
 
     # Live API 配置
-    GEMINI_LIVE_DEFAULT_MODEL = "gemini-2.5-flash-native-audio-preview-12-2025"
+    GEMINI_LIVE_DEFAULT_MODEL = "gemini-3.8-live"
     OPENAI_REALTIME_DEFAULT_MODEL = "gpt-4o-realtime-preview"
 
     # 共用配置

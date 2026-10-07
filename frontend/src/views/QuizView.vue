@@ -90,14 +90,14 @@ const currentAudio = ref<HTMLAudioElement | null>(null)
 
 function getMediaConfig() {
   const mediaProvider = 'gemini' as const
-  const mediaModel = settingsStore.settings.defaultModel || 'gemini-2.5-flash'
+  const mediaModel = settingsStore.settings.defaultModel || 'gemini-3.5-flash-lite'
   const mediaApiKey = settingsStore.settings.apiKeys.gemini
   return { mediaProvider, mediaModel, mediaApiKey }
 }
 
 function getListeningConfig() {
   const textProvider = 'gemini' as const  // 固定使用 Gemini
-  const textModel = settingsStore.settings.defaultModel || 'gemini-2.5-flash'
+  const textModel = settingsStore.settings.defaultModel || 'gemini-3.5-flash-lite'
   const textApiKey = settingsStore.settings.apiKeys.gemini
   const { mediaProvider, mediaModel, mediaApiKey } = getMediaConfig()
   return {
@@ -1299,7 +1299,7 @@ async function generateReadingQuiz(questionType: 'sentence' | 'paragraph' | 'sin
 
   try {
     const provider = 'gemini'  // 固定使用 Gemini
-    const model = settingsStore.settings.defaultModel || 'gemini-2.5-flash'
+    const model = settingsStore.settings.defaultModel || 'gemini-3.5-flash-lite'
     const apiKey = settingsStore.settings.apiKeys.gemini
     const response = await toeicAPI.startReadingJob({
       question_type: questionType,
@@ -2077,7 +2077,7 @@ async function generateSingleExplanation(questionNumber: number, subIndex?: numb
 
   try {
     const provider = 'gemini'  // 固定使用 Gemini
-    const model = settingsStore.settings.defaultModel || 'gemini-2.5-flash'
+    const model = settingsStore.settings.defaultModel || 'gemini-3.5-flash-lite'
     const apiKey = settingsStore.settings.apiKeys.gemini
 
     if (isReadingMode.value) {

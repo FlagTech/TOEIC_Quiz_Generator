@@ -1,7 +1,7 @@
 """
 Google Gemini Flash Image 圖片生成客戶端
 
-使用 gemini-2.5-flash-image 模型進行原生圖片生成，用於 TOEIC Part 1 題目生成
+使用 gemini-3.1-flash-lite-image 模型進行原生圖片生成，用於 TOEIC Part 1 題目生成
 """
 
 import base64
@@ -21,7 +21,7 @@ AspectRatio = Literal["1:1", "3:4", "4:3", "9:16", "16:9"]
 class GeminiImagenClient:
     """Google Gemini Flash Image 圖片生成客戶端"""
 
-    MODEL_NAME = "gemini-2.5-flash-image"
+    MODEL_NAME = "gemini-3.1-flash-lite-image"
 
     def __init__(self, api_key: Optional[str] = None):
         self.api_key = APIKeyManager.get_gemini_key(api_key)
@@ -35,7 +35,7 @@ class GeminiImagenClient:
         aspect_ratio: AspectRatio = "1:1",
     ) -> list[bytes]:
         """
-        使用 gemini-2.5-flash-image 生成圖片
+        使用 gemini-3.1-flash-lite-image 生成圖片
 
         Args:
             prompt: 英文圖片描述

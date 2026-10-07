@@ -279,7 +279,7 @@ class Part1Request(BaseModel):
     count: int = 6  # Part 1 通常是 6 題
     difficulty: Literal["easy", "medium", "hard"] = "medium"
     provider: str = "gemini"  # 舊欄位：媒體生成 provider（僅支援 Gemini）
-    model: str = "gemini-2.5-flash"  # 舊欄位：媒體生成模型
+    model: str = "gemini-3.5-flash-lite"  # 舊欄位：媒體生成模型
     api_key: str  # 舊欄位：媒體 API key（Gemini）
     text_api_key: Optional[str] = None  # 文字生成 API key（Gemini Vision 用）
     text_provider: Optional[str] = None
@@ -572,7 +572,7 @@ async def generate_tts_audio(
     try:
         from backend.ai_clients.gemini_tts_client import GeminiTTSClient
 
-        tts_client = GeminiTTSClient(api_key=api_key, model="gemini-2.5-flash-preview-tts", voice=voice_to_use)
+        tts_client = GeminiTTSClient(api_key=api_key, model="flash", voice=voice_to_use)
         last_error: Optional[Exception] = None
         for attempt in range(3):
             try:
@@ -710,7 +710,7 @@ async def generate_part2_question(
                     time.sleep(2 ** attempt)
                 tts_client = GeminiTTSClient(
                     api_key=tts_api_key,
-                    model="gemini-2.5-flash-preview-tts",
+                    model="flash",
                     voice=woman_voice
                 )
                 tts_client.generate_speech_file(
@@ -730,11 +730,8 @@ async def generate_part2_question(
         print(f">>> 問題音檔生成成功: {question_filename}")
 
     # ========== 第二次 TTS：生成選項合併音檔（Man 聲音）+ 切割 ==========
-    # 使用 Gemini TTS 官方 wait 語法（避免 [long pause] bug）
-    parts = [f'Say "{labeled_options[0]}"']
-    for opt in labeled_options[1:]:
-        parts.append(f'wait 1 second then say "{opt}"')
-    combined_options_text = ", ".join(parts) + "."
+    # 使用 Gemini 3.8 TTS 停頓標籤 <long pause> 分隔選項，方便後續依靜音切割
+    combined_options_text = " <long pause> ".join(labeled_options)
     options_hash = hashlib.md5(f"{combined_options_text}|{man_voice}|{options_accent}|{pace}".encode()).hexdigest()
     combined_options_filename = f"part2_opts_{options_hash}.wav"
     combined_options_path = f"data/audio_cache/{combined_options_filename}"
@@ -751,7 +748,7 @@ async def generate_part2_question(
                     time.sleep(2 ** attempt)
                 tts_client = GeminiTTSClient(
                     api_key=tts_api_key,
-                    model="gemini-2.5-flash-preview-tts",
+                    model="flash",
                     voice=man_voice
                 )
                 tts_client.generate_speech_file(
@@ -789,7 +786,7 @@ async def generate_part2_question(
                                 time.sleep(2 ** attempt)
                             tts_client = GeminiTTSClient(
                                 api_key=tts_api_key,
-                                model="gemini-2.5-flash-preview-tts",
+                                model="flash",
                                 voice=man_voice
                             )
                             tts_client.generate_speech_file(
@@ -944,7 +941,7 @@ async def generate_part3_question(
 
             tts_client = GeminiTTSClient(
                 api_key=tts_api_key,
-                model="gemini-2.5-flash-preview-tts",
+                model="flash",
                 voice=man_voice
             )
 
@@ -1153,9 +1150,9 @@ async def generate_part1_question(
     from google.genai import types as genai_types
 
     imagen_client = GeminiImagenClient(api_key=api_key)
-    tts_client = GeminiTTSClient(api_key=api_key, model="gemini-2.5-flash-preview-tts", voice="Puck")
+    tts_client = GeminiTTSClient(api_key=api_key, model="flash", voice="Puck")
     vision_client = genai.Client(api_key=api_key)
-    print(">>> 使用 Gemini (gemini-2.5-flash-image + Gemini Vision + Gemini TTS)")
+    print(">>> 使用 Gemini (gemini-3.1-flash-lite-image + Gemini Vision + Gemini TTS)")
 
     # 重試邏輯：如果遇到 safety violation 或其他圖片生成錯誤，重新選擇 COCO 描述
     last_error = None
@@ -1248,7 +1245,7 @@ async def generate_part1_question(
                 for overload_attempt in range(3):
                     try:
                         response = vision_client.models.generate_content(
-                            model=model or "gemini-2.5-flash-lite",
+                            model=model or "gemini-3.5-flash-lite",
                             contents=[
                                 genai_types.Part.from_bytes(
                                     data=base64.b64decode(img_base64),
@@ -1307,11 +1304,8 @@ async def generate_part1_question(
     voice_to_use = pick_random_gemini_voice()
     selected_accent = accent or get_random_toeic_accent()  # 使用指定或隨機選擇 TOEIC 口音
     labeled_descriptions = [f"{chr(65 + idx)}. {desc}" for idx, desc in enumerate(descriptions)]
-    # 使用 Gemini TTS 官方 wait 語法（避免 [long pause] bug）
-    parts = [f'Say "{labeled_descriptions[0]}"']
-    for desc in labeled_descriptions[1:]:
-        parts.append(f'wait 1 second then say "{desc}"')
-    combined_text = ", ".join(parts) + "."
+    # 使用 Gemini 3.8 TTS 停頓標籤 <long pause> 分隔選項，方便後續依靜音切割
+    combined_text = " <long pause> ".join(labeled_descriptions)
     combined_hash = hashlib.md5(f"{combined_text}|{voice_to_use}|{selected_accent}|{pace}".encode()).hexdigest()
     combined_filename = f"part1_{combined_hash}.wav"
     combined_path = f"data/audio_cache/{combined_filename}"
@@ -1405,7 +1399,7 @@ async def generate_part1_questions(request: Part1Request):
     media_provider = request.tts_provider or request.provider
     media_api_key = request.tts_api_key or request.api_key
     text_api_key = request.text_api_key or media_api_key
-    vision_model = request.text_model or request.model or "gemini-2.5-flash"
+    vision_model = request.text_model or request.model or "gemini-3.5-flash-lite"
 
     if media_provider.lower() != "gemini":
         raise HTTPException(status_code=400, detail="Part 1 媒體生成僅支援 Gemini")
